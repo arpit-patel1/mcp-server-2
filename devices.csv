@@ -1,0 +1,5 @@
+device_type,device_name,ip_address,username,password,ssh_port,secret,session_log,fast_cli,timeout,conn_timeout,auth_timeout,banner_timeout,netconf_port,restconf_port,global_delay_factor
+cisco_ios,ios_xe1,ios-xe-mgmt.cisco.com,root,D_Vay!_10&,8181,,,False,100,10,10,15,10000,9443,1.0
+cisco_ios,ios_xe_latest,sandbox-iosxe-latest-1.cisco.com,admin,C1sco12345,22,,,False,100,10,10,15,830,443,1.0
+cisco_xr,xr_9000,sandbox-iosxr-1.cisco.com,admin,C1sco12345,22,,,False,100,10,10,15,830,443,1.0
+cisco_nxos,nxos1,sbx-nxos-mgmt.cisco.com,admin,Admin_1234!,22,,,False,100,10,10,15,830,443,1.0

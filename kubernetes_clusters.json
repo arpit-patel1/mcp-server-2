@@ -1,0 +1,14 @@
+[
+  {
+    "cluster_name": "docker-desktop",
+    "kubeconfig_path": null,
+    "context": null,
+    "api_server": null,
+    "token": null,
+    "cert_file": null,
+    "key_file": null,
+    "ca_file": null,
+    "verify_ssl": false,
+    "active": true
+  }
+]

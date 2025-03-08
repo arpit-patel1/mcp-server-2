@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Network Manager Web Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        .panel {
+            flex: 1;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .device-list {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 15px;
+        }
+        .output {
+            height: 400px;
+            overflow-y: auto;
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            padding: 10px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 14px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        input, select {
+            padding: 8px;
+            margin: 5px 0;
+            display: inline-block;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .form-group {
+            margin-bottom: 10px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        .device-item {
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+        }
+        .device-item:hover {
+            background-color: #f0f0f0;
+        }
+        .connected {
+            color: green;
+            font-weight: bold;
+        }
+        .disconnected {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <h1>MCP Network Manager Web Client</h1>
+    
+    <div class="container">
+        <div class="panel">
+            <h2>Devices</h2>
+            <div class="device-list" id="deviceList"></div>
+            <button id="refreshDevices">Refresh Devices</button>
+            <button id="addDeviceBtn">Add Device</button>
+        </div>
+        
+        <div class="panel">
+            <h2>Device Operations</h2>
+            <div class="form-group">
+                <label for="selectedDevice">Selected Device:</label>
+                <input type="text" id="selectedDevice" readonly>
+            </div>
+            
+            <div class="form-group">
+                <button id="connectBtn">Connect</button>
+                <button id="disconnectBtn">Disconnect</button>
+                <button id="checkConnectionBtn">Check Connection</button>
+            </div>
+            
+            <div class="form-group">
+                <label for="commandInput">Command:</label>
+                <input type="text" id="commandInput" placeholder="Enter command">
+                <button id="sendCommandBtn">Send Command</button>
+            </div>
+            
+            <div class="form-group">
+                <label for="configType">Config Type:</label>
+                <select id="configType">
+                    <option value="running">Running Config</option>
+                    <option value="startup">Startup Config</option>
+                    <option value="candidate">Candidate Config</option>
+                </select>
+                <button id="getConfigBtn">Get Config</button>
+            </div>
+            
+            <div class="form-group">
+                <label for="configCommands">Config Commands (one per line):</label>
+                <textarea id="configCommands" rows="5" style="width: 100%;"></textarea>
+                <button id="sendConfigBtn">Send Config</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="panel">
+        <h2>Output</h2>
+        <div class="output" id="output"></div>
+        <button id="clearOutput">Clear Output</button>
+    </div>
+    
+    <!-- Add Device Modal -->
+    <div id="addDeviceModal" style="display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
+        <div style="background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 50%;">
+            <span style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;" id="closeModal">&times;</span>
+            <h2>Add Device</h2>
+            <div class="form-group">
+                <label for="deviceType">Device Type:</label>
+                <select id="deviceType">
+                    <option value="cisco_ios">Cisco IOS</option>
+                    <option value="cisco_xr">Cisco XR</option>
+                    <option value="cisco_nxos">Cisco NX-OS</option>
+                    <option value="juniper">Juniper</option>
+                    <option value="arista_eos">Arista EOS</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="deviceName">Device Name:</label>
+                <input type="text" id="deviceName">
+            </div>
+            <div class="form-group">
+                <label for="ipAddress">IP Address:</label>
+                <input type="text" id="ipAddress">
+            </div>
+            <div class="form-group">
+                <label for="username">Username:</label>
+                <input type="text" id="username">
+            </div>
+            <div class="form-group">
+                <label for="password">Password:</label>
+                <input type="password" id="password">
+            </div>
+            <div class="form-group">
+                <label for="sshPort">SSH Port:</label>
+                <input type="number" id="sshPort" value="22">
+            </div>
+            <div class="form-group">
+                <label for="netconfPort">NETCONF Port (optional):</label>
+                <input type="number" id="netconfPort">
+            </div>
+            <div class="form-group">
+                <label for="restconfPort">RESTCONF Port (optional):</label>
+                <input type="number" id="restconfPort">
+            </div>
+            <button id="submitAddDevice">Add Device</button>
+        </div>
+    </div>
+
+    <script>
+        // MCP Client implementation
+        class McpClient {
+            constructor(baseUrl) {
+                this.baseUrl = baseUrl;
+                this.sessionId = null;
+                this.messageQueue = [];
+                this.eventSource = null;
+                this.messageHandlers = {};
+                this.nextMessageId = 1;
+            }
+
+            async initialize() {
+                // Create a new session
+                const response = await fetch(`${this.baseUrl}/messages/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        type: 'initialize',
+                        options: {}
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Failed to initialize session: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                this.sessionId = data.session_id;
+
+                // Connect to the event stream
+                this.eventSource = new EventSource(`${this.baseUrl}/messages/${this.sessionId}`);
+                this.eventSource.onmessage = (event) => {
+                    const message = JSON.parse(event.data);
+                    const handler = this.messageHandlers[message.id];
+                    if (handler) {
+                        handler(message);
+                        delete this.messageHandlers[message.id];
+                    }
+                };
+
+                this.eventSource.onerror = (error) => {
+                    console.error('EventSource error:', error);
+                };
+
+                // Wait for the connection to be established
+                return new Promise((resolve) => {
+                    this.eventSource.onopen = () => {
+                        resolve();
+                    };
+                });
+            }
+
+            async sendMessage(message) {
+                const messageId = this.nextMessageId++;
+                message.id = messageId;
+
+                return new Promise((resolve, reject) => {
+                    this.messageHandlers[messageId] = (response) => {
+                        if (response.error) {
+                            reject(new Error(response.error));
+                        } else {
+                            resolve(response);
+                        }
+                    };
+
+                    fetch(`${this.baseUrl}/messages/${this.sessionId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(message)
+                    }).catch(reject);
+                });
+            }
+
+            async listTools() {
+                const response = await this.sendMessage({
+                    type: 'list_tools'
+                });
+                return response.tools;
+            }
+
+            async callTool(name, arguments) {
+                const response = await this.sendMessage({
+                    type: 'call_tool',
+                    name,
+                    arguments
+                });
+                return response.result;
+            }
+
+            close() {
+                if (this.eventSource) {
+                    this.eventSource.close();
+                }
+            }
+        }
+
+        // UI Controller
+        document.addEventListener('DOMContentLoaded', async () => {
+            const client = new McpClient('http://localhost:8000');
+            let selectedDeviceName = '';
+            
+            // Initialize the client
+            try {
+                await client.initialize();
+                log('Connected to MCP Network Manager server');
+                refreshDeviceList();
+            } catch (error) {
+                log(`Error connecting to server: ${error.message}`);
+            }
+
+            // Event listeners
+            document.getElementById('refreshDevices').addEventListener('click', refreshDeviceList);
+            document.getElementById('connectBtn').addEventListener('click', connectToDevice);
+            document.getElementById('disconnectBtn').addEventListener('click', disconnectFromDevice);
+            document.getElementById('checkConnectionBtn').addEventListener('click', checkConnection);
+            document.getElementById('sendCommandBtn').addEventListener('click', sendCommand);
+            document.getElementById('getConfigBtn').addEventListener('click', getConfig);
+            document.getElementById('sendConfigBtn').addEventListener('click', sendConfig);
+            document.getElementById('clearOutput').addEventListener('click', clearOutput);
+            document.getElementById('addDeviceBtn').addEventListener('click', showAddDeviceModal);
+            document.getElementById('closeModal').addEventListener('click', hideAddDeviceModal);
+            document.getElementById('submitAddDevice').addEventListener('click', addDevice);
+
+            // Functions
+            async function refreshDeviceList() {
+                try {
+                    const result = await client.callTool('list_devices', {});
+                    const deviceListEl = document.getElementById('deviceList');
+                    deviceListEl.innerHTML = '';
+                    
+                    // The result is a text table, we'll display it as is for now
+                    // In a real application, you would parse the result and create a proper UI
+                    log(result[0].text);
+                    
+                    // Extract device names from the table (this is a simple approach)
+                    const lines = result[0].text.split('\n');
+                    for (let i = 3; i < lines.length - 2; i++) {
+                        const line = lines[i].trim();
+                        if (line) {
+                            const columns = line.split('│').map(col => col.trim());
+                            if (columns.length >= 3) {
+                                const deviceName = columns[2];
+                                const connected = columns[columns.length - 1] === 'Yes';
+                                
+                                const deviceItem = document.createElement('div');
+                                deviceItem.className = 'device-item';
+                                deviceItem.textContent = deviceName;
+                                deviceItem.classList.add(connected ? 'connected' : 'disconnected');
+                                deviceItem.addEventListener('click', () => selectDevice(deviceName));
+                                deviceListEl.appendChild(deviceItem);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    log(`Error refreshing device list: ${error.message}`);
+                }
+            }
+
+            function selectDevice(deviceName) {
+                selectedDeviceName = deviceName;
+                document.getElementById('selectedDevice').value = deviceName;
+                log(`Selected device: ${deviceName}`);
+            }
+
+            async function connectToDevice() {
+                if (!selectedDeviceName) {
+                    log('Please select a device first');
+                    return;
+                }
+
+                try {
+                    const result = await client.callTool('connect', {
+                        device_name: selectedDeviceName
+                    });
+                    log(result[0].text);
+                    refreshDeviceList();
+                } catch (error) {
+                    log(`Error connecting to device: ${error.message}`);
+                }
+            }
+
+            async function disconnectFromDevice() {
+                if (!selectedDeviceName) {
+                    log('Please select a device first');
+                    return;
+                }
+
+                try {
+                    const result = await client.callTool('disconnect', {
+                        device_name: selectedDeviceName
+                    });
+                    log(result[0].text);
+                    refreshDeviceList();
+                } catch (error) {
+                    log(`Error disconnecting from device: ${error.message}`);
+                }
+            }
+
+            async function checkConnection() {
+                if (!selectedDeviceName) {
+                    log('Please select a device first');
+                    return;
+                }
+
+                try {
+                    const result = await client.callTool('check_connection', {
+                        device_name: selectedDeviceName
+                    });
+                    log(result[0].text);
+                } catch (error) {
+                    log(`Error checking connection: ${error.message}`);
+                }
+            }
+
+            async function sendCommand() {
+                if (!selectedDeviceName) {
+                    log('Please select a device first');
+                    return;
+                }
+
+                const command = document.getElementById('commandInput').value;
+                if (!command) {
+                    log('Please enter a command');
+                    return;
+                }
+
+                try {
+                    const result = await client.callTool('send_command', {
+                        device_name: selectedDeviceName,
+                        command: command
+                    });
+                    log(`Command: ${command}\n\nResult:\n${result[0].text}`);
+                } catch (error) {
+                    log(`Error sending command: ${error.message}`);
+                }
+            }
+
+            async function getConfig() {
+                if (!selectedDeviceName) {
+                    log('Please select a device first');
+                    return;
+                }
+
+                const configType = document.getElementById('configType').value;
+
+                try {
+                    const result = await client.callTool('get_config', {
+                        device_name: selectedDeviceName,
+                        config_type: configType
+                    });
+                    log(`${configType.charAt(0).toUpperCase() + configType.slice(1)} Configuration:\n${result[0].text}`);
+                } catch (error) {
+                    log(`Error getting configuration: ${error.message}`);
+                }
+            }
+
+            async function sendConfig() {
+                if (!selectedDeviceName) {
+                    log('Please select a device first');
+                    return;
+                }
+
+                const configCommands = document.getElementById('configCommands').value;
+                if (!configCommands) {
+                    log('Please enter configuration commands');
+                    return;
+                }
+
+                try {
+                    const result = await client.callTool('send_config', {
+                        device_name: selectedDeviceName,
+                        config_commands: configCommands
+                    });
+                    log(`Configuration Result:\n${result[0].text}`);
+                } catch (error) {
+                    log(`Error sending configuration: ${error.message}`);
+                }
+            }
+
+            function showAddDeviceModal() {
+                document.getElementById('addDeviceModal').style.display = 'block';
+            }
+
+            function hideAddDeviceModal() {
+                document.getElementById('addDeviceModal').style.display = 'none';
+            }
+
+            async function addDevice() {
+                const deviceType = document.getElementById('deviceType').value;
+                const deviceName = document.getElementById('deviceName').value;
+                const ipAddress = document.getElementById('ipAddress').value;
+                const username = document.getElementById('username').value;
+                const password = document.getElementById('password').value;
+                const sshPort = parseInt(document.getElementById('sshPort').value);
+                const netconfPort = document.getElementById('netconfPort').value ? parseInt(document.getElementById('netconfPort').value) : null;
+                const restconfPort = document.getElementById('restconfPort').value ? parseInt(document.getElementById('restconfPort').value) : null;
+
+                if (!deviceType || !deviceName || !ipAddress || !username || !password || !sshPort) {
+                    log('Please fill in all required fields');
+                    return;
+                }
+
+                try {
+                    const params = {
+                        device_type: deviceType,
+                        device_name: deviceName,
+                        ip_address: ipAddress,
+                        username: username,
+                        password: password,
+                        ssh_port: sshPort
+                    };
+
+                    if (netconfPort) params.netconf_port = netconfPort;
+                    if (restconfPort) params.restconf_port = restconfPort;
+
+                    const result = await client.callTool('add_device', params);
+                    log(result[0].text);
+                    hideAddDeviceModal();
+                    refreshDeviceList();
+                } catch (error) {
+                    log(`Error adding device: ${error.message}`);
+                }
+            }
+
+            function log(message) {
+                const outputEl = document.getElementById('output');
+                outputEl.textContent += message + '\n\n';
+                outputEl.scrollTop = outputEl.scrollHeight;
+            }
+
+            function clearOutput() {
+                document.getElementById('output').textContent = '';
+            }
+
+            // Clean up when the page is closed
+            window.addEventListener('beforeunload', () => {
+                client.close();
+            });
+        });
+    </script>
+</body>
+</html> 
