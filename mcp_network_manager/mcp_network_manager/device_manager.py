@@ -14,6 +14,8 @@ from netmiko.exceptions import (
 )
 from pydantic import BaseModel, Field
 
+from mcp_network_manager.security_utils import encrypt_password, decrypt_password, is_password_encrypted
+
 
 class Device(BaseModel):
 
@@ -136,13 +138,13 @@ class DeviceManager:
                     "device_name": row["device_name"],
                     "ip_address": row["ip_address"],
                     "username": row["username"],
-                    "password": row["password"],
+                    "password": row["password"],  # Password is loaded as is (may be encrypted)
                     "ssh_port": int(row["ssh_port"]) if not pd.isna(row["ssh_port"]) else 22,
                 }
                 
                 # Add optional parameters if they exist
                 if "secret" in row and not pd.isna(row["secret"]):
-                    device_data["secret"] = row["secret"]
+                    device_data["secret"] = row["secret"]  # Secret is loaded as is (may be encrypted)
                 if "timeout" in row and not pd.isna(row["timeout"]):
                     device_data["timeout"] = int(row["timeout"])
                 if "session_log" in row and not pd.isna(row["session_log"]):
@@ -163,6 +165,13 @@ class DeviceManager:
 
     def save_inventory(self) -> None:
         """Save the inventory to the CSV file."""
+        # Make sure passwords are encrypted before saving
+        for device in self.devices.values():
+            if not is_password_encrypted(device.password):
+                device.password = encrypt_password(device.password)
+            if device.secret and not is_password_encrypted(device.secret):
+                device.secret = encrypt_password(device.secret)
+                
         df = pd.DataFrame([device.model_dump() for device in self.devices.values()])
         df.to_csv(self.inventory_file, index=False)
 
@@ -189,6 +198,12 @@ class DeviceManager:
         if device.device_name in self.devices:
             raise ValueError(f"Device {device.device_name} already exists")
 
+        # Encrypt the password and secret before storing
+        if not is_password_encrypted(device.password):
+            device.password = encrypt_password(device.password)
+        if device.secret and not is_password_encrypted(device.secret):
+            device.secret = encrypt_password(device.secret)
+            
         self.devices[device.device_name] = device
         self.save_inventory()
         return device
@@ -233,12 +248,14 @@ class DeviceManager:
 
         return self.devices[device_name]
 
-    def connect(self, device_name: str, auto_detect: bool = False) -> str:
+    def connect(self, device_name: str, auto_detect: bool = False, provided_password: str = None, provided_secret: str = None) -> str:
         """Connect to a device.
 
         Args:
             device_name: Name of the device to connect to.
             auto_detect: Whether to auto-detect the device type.
+            provided_password: Optional password to use instead of the stored one.
+            provided_secret: Optional secret to use instead of the stored one.
 
         Returns:
             Connection status message.
@@ -253,11 +270,36 @@ class DeviceManager:
             return f"Already connected to {device_name}"
 
         device = self.devices[device_name]
+        
+        # Get the actual password for connection
+        # If the password is encrypted, decrypt it
+        # If a password is provided, use it instead
+        actual_password = device.password
+        if is_password_encrypted(actual_password):
+            if provided_password:
+                actual_password = provided_password
+            else:
+                try:
+                    actual_password = decrypt_password(actual_password)
+                except Exception as e:
+                    raise ValueError(f"Failed to decrypt password for {device_name}: {e}")
+        
+        # Same logic for secret
+        actual_secret = device.secret
+        if actual_secret and is_password_encrypted(actual_secret):
+            if provided_secret:
+                actual_secret = provided_secret
+            else:
+                try:
+                    actual_secret = decrypt_password(actual_secret)
+                except Exception as e:
+                    raise ValueError(f"Failed to decrypt secret for {device_name}: {e}")
+        
         device_params = {
             "device_type": device.device_type,
             "host": device.ip_address,
             "username": device.username,
-            "password": device.password,
+            "password": actual_password,
             "port": device.ssh_port,
             "timeout": device.timeout,
             "conn_timeout": device.conn_timeout,
@@ -268,8 +310,8 @@ class DeviceManager:
         }
         
         # Add optional parameters if they exist
-        if device.secret:
-            device_params["secret"] = device.secret
+        if actual_secret:
+            device_params["secret"] = actual_secret
         if device.session_log:
             device_params["session_log"] = device.session_log
 
@@ -280,7 +322,7 @@ class DeviceManager:
                     "device_type": "autodetect",
                     "host": device.ip_address,
                     "username": device.username,
-                    "password": device.password,
+                    "password": actual_password,
                     "port": device.ssh_port,
                 }
                 guesser = SSHDetect(**remote_device)
@@ -297,7 +339,7 @@ class DeviceManager:
             connection = ConnectHandler(**device_params)
             
             # Enter enable mode if secret is provided
-            if device.secret and connection.secret:
+            if actual_secret and connection.secret:
                 connection.enable()
                 
             self.connections[device_name] = connection
@@ -349,22 +391,13 @@ class DeviceManager:
         if device_name not in self.devices:
             raise ValueError(f"Device {device_name} doesn't exist")
 
-        if device_name not in self.connections:
-            return False
-            
-        # Try to send a simple command to check if the connection is still active
-        try:
-            self.connections[device_name].find_prompt()
-            return True
-        except Exception:
-            # Connection is not active, clean it up
-            del self.connections[device_name]
-            return False
+        return device_name in self.connections
 
     def send_command(self, device_name: str, command: str, expect_string: Optional[str] = None, 
                     delay_factor: float = 1.0, max_loops: int = 500, 
                     strip_prompt: bool = True, strip_command: bool = True, 
-                    normalize: bool = True, use_textfsm: bool = False) -> str:
+                    normalize: bool = True, use_textfsm: bool = False,
+                    provided_password: str = None, provided_secret: str = None) -> str:
         """Send a command to a device.
 
         Args:
@@ -377,6 +410,8 @@ class DeviceManager:
             strip_command: Remove the command from the output.
             normalize: Normalize line endings.
             use_textfsm: Use TextFSM to parse the output.
+            provided_password: Optional password to use if not connected.
+            provided_secret: Optional secret to use if not connected.
 
         Returns:
             Command output.
@@ -387,12 +422,13 @@ class DeviceManager:
         if device_name not in self.devices:
             raise ValueError(f"Device {device_name} doesn't exist")
 
+        # If not connected, try to connect first
         if device_name not in self.connections:
-            raise ValueError(f"Not connected to {device_name}")
+            self.connect(device_name, provided_password=provided_password, provided_secret=provided_secret)
 
         try:
             return self.connections[device_name].send_command(
-                command, 
+                command,
                 expect_string=expect_string,
                 delay_factor=delay_factor,
                 max_loops=max_loops,
@@ -402,25 +438,29 @@ class DeviceManager:
                 use_textfsm=use_textfsm
             )
         except ReadTimeout:
-            raise ValueError(f"Command timed out on {device_name}")
+            # Provide more detailed error message for timeout
+            raise ValueError(f"Command timed out on {device_name}. Try increasing delay_factor or max_loops.")
         except Exception as e:
             raise ValueError(f"Failed to send command to {device_name}: {e}")
 
     def send_config(self, device_name: str, config_commands: List[str], 
                    exit_config_mode: bool = True, delay_factor: float = 1.0,
                    max_loops: int = 150, strip_prompt: bool = True,
-                   strip_command: bool = True, config_mode_command: Optional[str] = None) -> str:
+                   strip_command: bool = True, config_mode_command: Optional[str] = None,
+                   provided_password: str = None, provided_secret: str = None) -> str:
         """Send configuration commands to a device.
 
         Args:
-            device_name: Name of the device to send the commands to.
-            config_commands: Configuration commands to send as a list of strings.
-            exit_config_mode: Exit config mode after sending commands.
+            device_name: Name of the device to send the configuration to.
+            config_commands: List of configuration commands to send.
+            exit_config_mode: Whether to exit config mode after sending commands.
             delay_factor: Multiplier to adjust delays.
             max_loops: Maximum number of loops to wait for expect_string.
             strip_prompt: Remove the prompt from the output.
             strip_command: Remove the command from the output.
             config_mode_command: Command to enter config mode.
+            provided_password: Optional password to use if not connected.
+            provided_secret: Optional secret to use if not connected.
 
         Returns:
             Configuration output.
@@ -431,8 +471,9 @@ class DeviceManager:
         if device_name not in self.devices:
             raise ValueError(f"Device {device_name} doesn't exist")
 
+        # If not connected, try to connect first
         if device_name not in self.connections:
-            raise ValueError(f"Not connected to {device_name}")
+            self.connect(device_name, provided_password=provided_password, provided_secret=provided_secret)
 
         try:
             # Increase delay factor temporarily for configuration commands if it's set to default
@@ -456,12 +497,15 @@ class DeviceManager:
         except Exception as e:
             raise ValueError(f"Failed to send configuration to {device_name}: {e}")
 
-    def get_config(self, device_name: str, config_type: str = "running") -> str:
+    def get_config(self, device_name: str, config_type: str = "running", 
+                  provided_password: str = None, provided_secret: str = None) -> str:
         """Get the configuration of a device.
 
         Args:
             device_name: Name of the device to get the configuration from.
             config_type: Type of configuration to get (running, startup, candidate).
+            provided_password: Optional password to use if not connected.
+            provided_secret: Optional secret to use if not connected.
 
         Returns:
             Device configuration.
@@ -472,8 +516,9 @@ class DeviceManager:
         if device_name not in self.devices:
             raise ValueError(f"Device {device_name} doesn't exist")
 
+        # If not connected, try to connect first
         if device_name not in self.connections:
-            raise ValueError(f"Not connected to {device_name}")
+            self.connect(device_name, provided_password=provided_password, provided_secret=provided_secret)
 
         try:
             device = self.devices[device_name]

@@ -114,6 +114,16 @@
             </div>
             
             <div class="form-group">
+                <label for="devicePassword">Password:</label>
+                <input type="password" id="devicePassword" placeholder="Enter password if needed">
+            </div>
+            
+            <div class="form-group">
+                <label for="deviceSecret">Secret:</label>
+                <input type="password" id="deviceSecret" placeholder="Enter secret if needed">
+            </div>
+            
+            <div class="form-group">
                 <label for="commandInput">Command:</label>
                 <input type="text" id="commandInput" placeholder="Enter command">
                 <button id="sendCommandBtn">Send Command</button>
@@ -365,10 +375,23 @@
                     return;
                 }
 
+                const password = document.getElementById('devicePassword').value;
+                const secret = document.getElementById('deviceSecret').value;
+
                 try {
-                    const result = await client.callTool('connect', {
+                    const params = {
                         device_name: selectedDeviceName
-                    });
+                    };
+
+                    // Add password and secret if provided
+                    if (password) {
+                        params.password = password;
+                    }
+                    if (secret) {
+                        params.secret = secret;
+                    }
+
+                    const result = await client.callTool('mcp_device__connect', params);
                     log(result[0].text);
                     refreshDeviceList();
                 } catch (error) {
@@ -421,11 +444,24 @@
                     return;
                 }
 
+                const password = document.getElementById('devicePassword').value;
+                const secret = document.getElementById('deviceSecret').value;
+
                 try {
-                    const result = await client.callTool('send_command', {
+                    const params = {
                         device_name: selectedDeviceName,
                         command: command
-                    });
+                    };
+
+                    // Add password and secret if provided
+                    if (password) {
+                        params.password = password;
+                    }
+                    if (secret) {
+                        params.secret = secret;
+                    }
+
+                    const result = await client.callTool('mcp_device__send_command', params);
                     log(`Command: ${command}\n\nResult:\n${result[0].text}`);
                 } catch (error) {
                     log(`Error sending command: ${error.message}`);
@@ -439,12 +475,24 @@
                 }
 
                 const configType = document.getElementById('configType').value;
+                const password = document.getElementById('devicePassword').value;
+                const secret = document.getElementById('deviceSecret').value;
 
                 try {
-                    const result = await client.callTool('get_config', {
+                    const params = {
                         device_name: selectedDeviceName,
                         config_type: configType
-                    });
+                    };
+
+                    // Add password and secret if provided
+                    if (password) {
+                        params.password = password;
+                    }
+                    if (secret) {
+                        params.secret = secret;
+                    }
+
+                    const result = await client.callTool('mcp_device__get_config', params);
                     log(`${configType.charAt(0).toUpperCase() + configType.slice(1)} Configuration:\n${result[0].text}`);
                 } catch (error) {
                     log(`Error getting configuration: ${error.message}`);

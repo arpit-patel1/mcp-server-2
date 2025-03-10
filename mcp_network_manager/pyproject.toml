@@ -21,7 +21,10 @@ dependencies = [
     "netmiko>=4.2.0",
     "pandas>=2.0.0",
     "pydantic>=2.0.0",
-    "rich>=13.0.0"
+    "rich>=13.0.0",
+    "bcrypt>=4.0.0",
+    "python-dotenv>=1.0.0",
+    "cryptography>=41.0.0"
 ]
 
 [project.scripts]

@@ -1,0 +1,20 @@
+version: '3'
+
+services:
+  mcp-network-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${MCP_PORT:-8000}:${MCP_PORT:-8000}"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - MCP_PORT=${MCP_PORT:-8000}
+      - MCP_TRANSPORT=${MCP_TRANSPORT:-sse}
+      - MCP_INVENTORY=${MCP_INVENTORY:-data/devices.csv}
+      - MCP_LOG_LEVEL=${MCP_LOG_LEVEL:-INFO}
+      - MCP_NETWORK_MANAGER_KEY=${MCP_NETWORK_MANAGER_KEY}
+    env_file:
+      - .env
+    restart: unless-stopped 

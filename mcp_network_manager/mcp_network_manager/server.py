@@ -4,6 +4,7 @@ import anyio
 import click
 import json
 import traceback
+import os
 from contextlib import AsyncExitStack
 from typing import Dict, List, Any, Optional, Literal, Union, Tuple
 import mcp.types as types
@@ -17,11 +18,18 @@ from pydantic import BaseModel, Field
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
 import logging
+from dotenv import load_dotenv
 
 from mcp_network_manager.device_manager import DeviceManager, Device
 from mcp_network_manager.prompt_manager import PromptManager
 from mcp_network_manager.kubernetes_manager import KubernetesManager, KubernetesCluster
+from mcp_network_manager.security_utils import encrypt_password, decrypt_password, is_password_encrypted, get_or_create_master_key
 
+# Load environment variables from .env file
+load_dotenv()
+
+# Ensure the master key is initialized
+get_or_create_master_key()
 
 console = Console()
 
@@ -154,6 +162,14 @@ class ConnectInput(BaseModel):
         default=False,
         description="Auto-detect device type"
     )
+    password: Optional[str] = Field(
+        default=None,
+        description="The password to use for authentication. Required if the stored password is encrypted."
+    )
+    secret: Optional[str] = Field(
+        default=None,
+        description="The enable secret for privileged mode access. Required if the stored secret is encrypted."
+    )
 
 
 class DisconnectInput(BaseModel):
@@ -170,6 +186,14 @@ class SendCommandInput(BaseModel):
     )
     command: str = Field(
         description="Command to send"
+    )
+    password: Optional[str] = Field(
+        default=None,
+        description="The password to use for authentication. Required if the stored password is encrypted."
+    )
+    secret: Optional[str] = Field(
+        default=None,
+        description="The enable secret for privileged mode access. Required if the stored secret is encrypted."
     )
     expect_string: Optional[str] = Field(
         default=None,
@@ -208,6 +232,14 @@ class SendConfigInput(BaseModel):
     )
     config_commands: str = Field(
         description="Configuration commands to send (one per line)"
+    )
+    password: Optional[str] = Field(
+        default=None,
+        description="The password to use for authentication. Required if the stored password is encrypted."
+    )
+    secret: Optional[str] = Field(
+        default=None,
+        description="The enable secret for privileged mode access. Required if the stored secret is encrypted."
     )
     exit_config_mode: bool = Field(
         default=True,
@@ -258,6 +290,14 @@ class GetConfigInput(BaseModel):
     config_type: Literal["running", "startup", "candidate"] = Field(
         default="running",
         description="Type of configuration to get (running, startup, candidate)"
+    )
+    password: Optional[str] = Field(
+        default=None,
+        description="The password to use for authentication. Required if the stored password is encrypted."
+    )
+    secret: Optional[str] = Field(
+        default=None,
+        description="The enable secret for privileged mode access. Required if the stored secret is encrypted."
     )
 
 
@@ -544,22 +584,22 @@ def model_to_schema(model_cls):
 
 
 @click.command()
-@click.option("--port", default=8000, help="Port to listen on for SSE")
+@click.option("--port", type=int, default=lambda: int(os.environ.get("MCP_PORT", "8000")), help="Port to listen on for SSE")
 @click.option(
     "--transport",
     type=click.Choice(["stdio", "sse"]),
-    default="stdio",
+    default=lambda: os.environ.get("MCP_TRANSPORT", "stdio"),
     help="Transport type",
 )
 @click.option(
     "--inventory",
-    default="devices.csv",
+    default=lambda: os.environ.get("MCP_INVENTORY", "devices.csv"),
     help="Path to the inventory file",
 )
 @click.option(
     "--log-level",
     type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
-    default="INFO",
+    default=lambda: os.environ.get("MCP_LOG_LEVEL", "INFO"),
     help="Set the logging level",
 )
 def main(port: int, transport: str, inventory: str, log_level: str) -> int:
@@ -579,6 +619,8 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
         level=getattr(logging, log_level),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
+    
+    logger.info(f"Starting MCP Network Manager with transport={transport}, inventory={inventory}, log_level={log_level}")
     
     app = Server("mcp-network-manager")
     device_manager = DeviceManager(inventory_file=inventory)
@@ -716,6 +758,8 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
             
             # Create Device from validated data
             device = Device(**device_data.model_dump(exclude_none=True))
+            
+            # Password hashing is handled in the add_device method
             device_manager.add_device(device)
             
             return [types.TextContent(type="text", text=f"Device {device.device_name} added successfully")]
@@ -759,7 +803,13 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
             # Use Pydantic model for validation
             input_data = ConnectInput(**arguments)
             
-            result = device_manager.connect(input_data.device_name, auto_detect=input_data.auto_detect)
+            # Pass the provided password and secret to the device manager
+            result = device_manager.connect(
+                device_name=input_data.device_name, 
+                auto_detect=input_data.auto_detect,
+                provided_password=input_data.password,
+                provided_secret=input_data.secret
+            )
             return [types.TextContent(type="text", text=result)]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Error connecting to device: {str(e)}")]
@@ -801,7 +851,7 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
             # Use Pydantic model for validation
             input_data = SendCommandInput(**arguments)
             
-            # Use validated model fields for command execution
+            # Pass the provided password and secret to the device manager
             result = device_manager.send_command(
                 device_name=input_data.device_name,
                 command=input_data.command,
@@ -811,7 +861,9 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
                 strip_prompt=input_data.strip_prompt,
                 strip_command=input_data.strip_command,
                 normalize=input_data.normalize,
-                use_textfsm=input_data.use_textfsm
+                use_textfsm=input_data.use_textfsm,
+                provided_password=input_data.password,
+                provided_secret=input_data.secret
             )
             return [types.TextContent(type="text", text=result)]
         except Exception as e:
@@ -833,7 +885,7 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
             # Use Pydantic model for validation
             input_data = SendConfigInput(**arguments)
             
-            # Use validated model fields for config execution
+            # Pass the provided password and secret to the device manager
             result = device_manager.send_config(
                 device_name=input_data.device_name,
                 config_commands=input_data.get_config_commands_list(),
@@ -842,7 +894,9 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
                 max_loops=input_data.max_loops,
                 strip_prompt=input_data.strip_prompt,
                 strip_command=input_data.strip_command,
-                config_mode_command=input_data.config_mode_command
+                config_mode_command=input_data.config_mode_command,
+                provided_password=input_data.password,
+                provided_secret=input_data.secret
             )
             return [types.TextContent(type="text", text=result)]
         except Exception as e:
@@ -864,7 +918,13 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
             # Use Pydantic model for validation
             input_data = GetConfigInput(**arguments)
             
-            result = device_manager.get_config(input_data.device_name, config_type=input_data.config_type)
+            # Pass the provided password and secret to the device manager
+            result = device_manager.get_config(
+                device_name=input_data.device_name, 
+                config_type=input_data.config_type,
+                provided_password=input_data.password,
+                provided_secret=input_data.secret
+            )
             return [types.TextContent(type="text", text=result)]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Error getting config: {str(e)}")]
@@ -1703,7 +1763,9 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
 
         import uvicorn
 
-        uvicorn.run(starlette_app, host="0.0.0.0", port=port)
+        # Ensure port is an integer
+        port_int = int(port)
+        uvicorn.run(starlette_app, host="0.0.0.0", port=port_int)
     else:
         from mcp.server.stdio import stdio_server
 

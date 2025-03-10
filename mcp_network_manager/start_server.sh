@@ -3,38 +3,53 @@
 # start_server.sh - Script to free up port and start the MCP Network Manager server
 # 
 # This script:
-# 1. Checks if the specified port is in use
-# 2. If it is, attempts to kill the process using it
-# 3. Starts the MCP Network Manager server with SSE transport
+# 1. Loads environment variables from .env file if it exists
+# 2. Checks if the specified port is in use
+# 3. If it is, attempts to kill the process using it
+# 4. Starts the MCP Network Manager server with the specified transport
 #
 # Note: The MCP Network Manager uses a strict tool naming convention with domain-specific prefixes:
 # - mcp_device__* for network device management tools
 # - mcp_kube__* for Kubernetes management tools
 # Old tool names without prefixes or with the generic mcp__ prefix are not supported.
 
-# Default values
-PORT=8000
-INVENTORY_FILE="devices.csv"
-TRANSPORT="sse"
-CONDA_ENV="mcp-dev-py311"
-LOG_LEVEL="INFO"
+# Load environment variables from .env file if it exists
+if [ -f .env ]; then
+    echo "Loading environment variables from .env file..."
+    export $(grep -v '^#' .env | xargs)
+fi
+
+# Default values (can be overridden by .env file or command-line arguments)
+PORT=${MCP_PORT:-8000}
+INVENTORY_FILE=${MCP_INVENTORY:-"devices.csv"}
+TRANSPORT=${MCP_TRANSPORT:-"sse"}
+CONDA_ENV=${MCP_CONDA_ENV:-"mcp-dev-py311"}
+LOG_LEVEL=${MCP_LOG_LEVEL:-"INFO"}
 
 # Function to display usage information
 usage() {
     echo "Usage: $0 [options]"
     echo ""
     echo "Options:"
-    echo "  -p, --port PORT          Port to use (default: 8000)"
-    echo "  -i, --inventory FILE     Inventory file to use (default: devices.csv)"
-    echo "  -t, --transport TYPE     Transport type (stdio or sse, default: sse)"
-    echo "  -e, --env NAME           Conda environment name (default: mcp-dev-py311)"
-    echo "  -l, --log-level LEVEL    Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL, default: INFO)"
+    echo "  -p, --port PORT          Port to use (default: $PORT)"
+    echo "  -i, --inventory FILE     Inventory file to use (default: $INVENTORY_FILE)"
+    echo "  -t, --transport TYPE     Transport type (stdio or sse, default: $TRANSPORT)"
+    echo "  -e, --env NAME           Conda environment name (default: $CONDA_ENV)"
+    echo "  -l, --log-level LEVEL    Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL, default: $LOG_LEVEL)"
     echo "  -h, --help               Display this help message"
+    echo ""
+    echo "Note: These options can also be set in a .env file using the following variables:"
+    echo "  MCP_PORT                 Port to use"
+    echo "  MCP_INVENTORY            Inventory file to use"
+    echo "  MCP_TRANSPORT            Transport type"
+    echo "  MCP_CONDA_ENV            Conda environment name"
+    echo "  MCP_LOG_LEVEL            Log level"
+    echo "  MCP_NETWORK_MANAGER_KEY  Master key for password encryption"
     echo ""
     exit 1
 }
 
-# Parse command-line arguments
+# Parse command-line arguments (these override .env settings)
 while [[ $# -gt 0 ]]; do
     case $1 in
         -p|--port)
@@ -77,6 +92,12 @@ fi
 if [[ "$LOG_LEVEL" != "DEBUG" && "$LOG_LEVEL" != "INFO" && "$LOG_LEVEL" != "WARNING" && "$LOG_LEVEL" != "ERROR" && "$LOG_LEVEL" != "CRITICAL" ]]; then
     echo "Error: Log level must be one of: DEBUG, INFO, WARNING, ERROR, CRITICAL"
     usage
+fi
+
+# Check if master key is set
+if [ -z "$MCP_NETWORK_MANAGER_KEY" ]; then
+    echo "Warning: MCP_NETWORK_MANAGER_KEY is not set. A new key will be generated."
+    echo "It is recommended to set this in your .env file for consistent password encryption and decryption."
 fi
 
 # Function to check if a port is in use
