@@ -5,6 +5,9 @@ import click
 import json
 import traceback
 import os
+import signal
+import sys
+import asyncio
 from contextlib import AsyncExitStack
 from typing import Dict, List, Any, Optional, Literal, Union, Tuple
 import mcp.types as types
@@ -130,6 +133,60 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
     device_manager = DeviceManager(inventory_file=inventory)
     prompt_manager = PromptManager()
     kubernetes_manager = KubernetesManager()
+    
+    # Set up graceful shutdown handling
+    shutdown_event = asyncio.Event()
+    shutdown_complete = asyncio.Event()  # New event to signal shutdown completion
+    starlette_app = None  # Will be set later if using SSE transport
+    
+    async def shutdown():
+        """Perform graceful shutdown of the server."""
+        logger.info("Initiating graceful shutdown...")
+        
+        # Close all device connections
+        for device_name in list(device_manager.connections.keys()):
+            try:
+                logger.info(f"Disconnecting from device: {device_name}")
+                device_manager.disconnect(device_name)
+            except Exception as e:
+                logger.error(f"Error disconnecting from {device_name}: {e}")
+        
+        # Clean up any Kubernetes resources if needed
+        try:
+            logger.info("Cleaning up Kubernetes resources...")
+            # Any kubernetes_manager cleanup code here
+        except Exception as e:
+            logger.error(f"Error cleaning up Kubernetes resources: {e}")
+        
+        # If using SSE transport, shut down the Starlette app
+        if transport == "sse" and starlette_app and hasattr(starlette_app, "shutdown"):
+            logger.info("Shutting down Starlette app...")
+            await starlette_app.shutdown()
+        
+        logger.info("Shutdown complete, exiting.")
+        
+        # Give a moment for logs to flush
+        await asyncio.sleep(0.5)
+        
+        # Set the shutdown_complete event instead of calling sys.exit()
+        shutdown_complete.set()
+        
+        # Don't call sys.exit() from an asyncio task
+        # sys.exit(0)  # This line is removed
+    
+    def signal_handler():
+        """Handle termination signals."""
+        if not shutdown_event.is_set():
+            logger.info("Received termination signal")
+            shutdown_event.set()
+            asyncio.create_task(shutdown())
+    
+    # Register signal handlers for graceful shutdown
+    if transport == "sse":  # Only set up signal handlers for SSE transport
+        loop = asyncio.get_event_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, signal_handler)
+        logger.info("Signal handlers registered for graceful shutdown")
 
     @app.call_tool()
     async def call_tool(
@@ -1146,10 +1203,16 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
                             # Re-raise other runtime errors
                             logger.error(f"Error in SSE connection: {e}")
                             raise
+                    except asyncio.CancelledError:
+                        # Handle cancellation gracefully
+                        logger.info("SSE connection cancelled")
                     except Exception as e:
                         logger.error(f"Unexpected error in SSE connection: {e}")
                         logger.debug(traceback.format_exc())
                         raise
+            except asyncio.CancelledError:
+                # Handle cancellation gracefully
+                logger.info("SSE connection setup cancelled")
             except Exception as e:
                 logger.error(f"Error establishing SSE connection: {e}")
                 logger.debug(traceback.format_exc())
@@ -1164,20 +1227,82 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
         )
 
         import uvicorn
-
-        # Ensure port is an integer
-        port_int = int(port)
-        uvicorn.run(starlette_app, host="0.0.0.0", port=port_int)
+        
+        # Configure Uvicorn with graceful shutdown
+        config = uvicorn.Config(
+            starlette_app, 
+            host="0.0.0.0", 
+            port=int(port),
+            log_level=log_level.lower(),
+            timeout_graceful_shutdown=10  # Give 10 seconds for graceful shutdown
+        )
+        server = uvicorn.Server(config)
+        
+        # Run the server
+        try:
+            loop = asyncio.get_event_loop()
+            
+            # Create a task to monitor the shutdown_complete event
+            async def monitor_shutdown():
+                await shutdown_complete.wait()
+                logger.info("Shutdown complete event received, stopping the server")
+                server.should_exit = True
+                
+            # Start the monitor task
+            monitor_task = loop.create_task(monitor_shutdown())
+            
+            # Run the server
+            loop.run_until_complete(server.serve())
+            
+            # Clean up the monitor task if it's still running
+            if not monitor_task.done():
+                monitor_task.cancel()
+                
+        except KeyboardInterrupt:
+            logger.info("Keyboard interrupt received, initiating graceful shutdown")
+            # The signal handler should take care of the shutdown
     else:
         from mcp.server.stdio import stdio_server
 
         async def arun():
-            async with stdio_server() as streams:
-                await app.run(
-                    streams[0], streams[1], app.create_initialization_options()
-                )
+            try:
+                async with stdio_server() as streams:
+                    await app.run(
+                        streams[0], streams[1], app.create_initialization_options()
+                    )
+            except asyncio.CancelledError:
+                # Handle cancellation gracefully
+                logger.info("STDIO server cancelled")
+                await shutdown()
+                
+            # Wait for shutdown to complete if it was initiated
+            await shutdown_complete.wait()
 
-        anyio.run(arun)
+        try:
+            anyio.run(arun)
+        except KeyboardInterrupt:
+            logger.info("Keyboard interrupt received, initiating graceful shutdown")
+            # For stdio transport, we need to handle shutdown differently
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            # Create a task for shutdown
+            shutdown_task = loop.create_task(shutdown())
+            
+            # Wait for shutdown to complete with a timeout
+            try:
+                loop.run_until_complete(asyncio.wait_for(shutdown_complete.wait(), timeout=10))
+                logger.info("Graceful shutdown completed")
+            except asyncio.TimeoutError:
+                logger.warning("Shutdown timed out, forcing exit")
+            finally:
+                # Clean up
+                if not shutdown_task.done():
+                    shutdown_task.cancel()
+                loop.close()
+                
+            # Now it's safe to exit
+            sys.exit(0)
 
     return 0
 
