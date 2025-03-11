@@ -12,8 +12,6 @@ from mcp.server.lowlevel import Server
 from mcp.server.sse import SseServerTransport
 from mcp.server.lowlevel.server import InitializationOptions
 from mcp.shared.exceptions import McpError, ErrorData
-from rich.console import Console
-from rich.table import Table
 from pydantic import BaseModel, Field
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
@@ -43,8 +41,6 @@ load_dotenv()
 
 # Ensure the master key is initialized
 get_or_create_master_key()
-
-console = Console()
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -212,39 +208,24 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
             
             devices = device_manager.list_devices()
             
-            # Create a table for the devices
-            table = Table(title="Devices")
-            table.add_column("Device Type")
-            table.add_column("Device Name")
-            table.add_column("IP Address")
-            table.add_column("Username")
-            table.add_column("SSH Port")
-            table.add_column("Secret")
-            table.add_column("Fast CLI")
-            table.add_column("Netconf Port")
-            table.add_column("Restconf Port")
-            table.add_column("Connected")
-
+            # Return the raw data as JSON instead of formatting it
+            device_data = []
             for device in devices:
                 connected = device_manager.check_connection(device.device_name)
-                table.add_row(
-                    device.device_type,
-                    device.device_name,
-                    device.ip_address,
-                    device.username,
-                    str(device.ssh_port),
-                    "Yes" if device.secret else "No",
-                    "Yes" if device.fast_cli else "No",
-                    str(device.netconf_port) if device.netconf_port else "N/A",
-                    str(device.restconf_port) if device.restconf_port else "N/A",
-                    "Yes" if connected else "No",
-                )
-
-            # Convert the table to a string
-            with console.capture() as capture:
-                console.print(table)
+                device_data.append({
+                    "device_type": device.device_type,
+                    "device_name": device.device_name,
+                    "ip_address": device.ip_address,
+                    "username": device.username,
+                    "ssh_port": device.ssh_port,
+                    "secret": device.secret is not None,
+                    "fast_cli": device.fast_cli,
+                    "netconf_port": device.netconf_port,
+                    "restconf_port": device.restconf_port,
+                    "connected": connected
+                })
             
-            return [types.TextContent(type="text", text=capture.get())]
+            return [types.TextContent(type="text", text=json.dumps({"devices": device_data}, indent=2))]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Error listing devices: {str(e)}")]
 
@@ -476,19 +457,13 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
             
             prompts = prompt_manager.list_prompts(input_data.device_type)
             
-            # Create a table for the prompts
-            table = Table(title=f"Prompts for {input_data.device_type}")
-            table.add_column("Prompt Name")
-            table.add_column("Prompt Value")
-
-            for name, value in prompts.items():
-                table.add_row(name, value)
-
-            # Convert the table to a string
-            with console.capture() as capture:
-                console.print(table)
+            # Return the raw data as JSON instead of formatting it
+            prompt_data = {
+                "device_type": input_data.device_type,
+                "prompts": prompts
+            }
             
-            return [types.TextContent(type="text", text=capture.get())]
+            return [types.TextContent(type="text", text=json.dumps(prompt_data, indent=2))]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Error listing prompts: {str(e)}")]
 
@@ -547,30 +522,19 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
             
             clusters = kubernetes_manager.list_clusters()
             
-            # Create a table for the clusters
-            table = Table(title="Kubernetes Clusters")
-            table.add_column("Cluster Name")
-            table.add_column("API Server")
-            table.add_column("Kubeconfig Path")
-            table.add_column("Context")
-            table.add_column("Verify SSL")
-            table.add_column("Active")
-
+            # Return the raw data as JSON instead of formatting it
+            cluster_data = []
             for cluster in clusters:
-                table.add_row(
-                    cluster.cluster_name,
-                    cluster.api_server or "N/A",
-                    cluster.kubeconfig_path or "N/A",
-                    cluster.context or "Default",
-                    "Yes" if cluster.verify_ssl else "No",
-                    "Yes" if cluster.active else "No",
-                )
-
-            # Convert the table to a string
-            with console.capture() as capture:
-                console.print(table)
+                cluster_data.append({
+                    "cluster_name": cluster.cluster_name,
+                    "api_server": cluster.api_server,
+                    "kubeconfig_path": cluster.kubeconfig_path,
+                    "context": cluster.context or "Default",
+                    "verify_ssl": cluster.verify_ssl,
+                    "active": cluster.active
+                })
             
-            return [types.TextContent(type="text", text=capture.get())]
+            return [types.TextContent(type="text", text=json.dumps({"clusters": cluster_data}, indent=2))]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Error listing clusters: {str(e)}")]
 
@@ -682,24 +646,13 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
             
             namespaces = kubernetes_manager.get_namespaces(input_data.cluster_name)
             
-            # Create a table for the namespaces
-            table = Table(title=f"Namespaces in cluster {input_data.cluster_name}")
-            table.add_column("Name")
-            table.add_column("Status")
-            table.add_column("Creation Timestamp")
-
-            for ns in namespaces:
-                table.add_row(
-                    ns['name'],
-                    ns['status'],
-                    ns['creation_timestamp'] or "N/A",
-                )
-
-            # Convert the table to a string
-            with console.capture() as capture:
-                console.print(table)
+            # Return the raw data as JSON instead of formatting it
+            namespace_data = {
+                "cluster_name": input_data.cluster_name,
+                "namespaces": namespaces
+            }
             
-            return [types.TextContent(type="text", text=capture.get())]
+            return [types.TextContent(type="text", text=json.dumps(namespace_data, indent=2))]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Error getting namespaces: {str(e)}")]
 
@@ -718,28 +671,14 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
             
             pods = kubernetes_manager.get_pods(input_data.cluster_name, input_data.namespace)
             
-            # Create a table for the pods
-            table = Table(title=f"Pods in namespace {input_data.namespace} of cluster {input_data.cluster_name}")
-            table.add_column("Name")
-            table.add_column("Status")
-            table.add_column("IP")
-            table.add_column("Node")
-            table.add_column("Creation Timestamp")
-
-            for pod in pods:
-                table.add_row(
-                    pod['name'],
-                    pod['status'],
-                    pod['ip'] or "N/A",
-                    pod['node'] or "N/A",
-                    pod['creation_timestamp'] or "N/A",
-                )
-
-            # Convert the table to a string
-            with console.capture() as capture:
-                console.print(table)
+            # Return the raw data as JSON instead of formatting it
+            pod_data = {
+                "cluster_name": input_data.cluster_name,
+                "namespace": input_data.namespace,
+                "pods": pods
+            }
             
-            return [types.TextContent(type="text", text=capture.get())]
+            return [types.TextContent(type="text", text=json.dumps(pod_data, indent=2))]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Error getting pods: {str(e)}")]
 
@@ -758,32 +697,14 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
             
             services = kubernetes_manager.get_services(input_data.cluster_name, input_data.namespace)
             
-            # Create a table for the services
-            table = Table(title=f"Services in namespace {input_data.namespace} of cluster {input_data.cluster_name}")
-            table.add_column("Name")
-            table.add_column("Type")
-            table.add_column("Cluster IP")
-            table.add_column("Ports")
-            table.add_column("Creation Timestamp")
-
-            for svc in services:
-                ports_str = ", ".join([
-                    f"{p['port']}:{p['target_port']}/{p['protocol']}" for p in svc['ports']
-                ]) if svc['ports'] else "N/A"
-                
-                table.add_row(
-                    svc['name'],
-                    svc['type'],
-                    svc['cluster_ip'] or "N/A",
-                    ports_str,
-                    svc['creation_timestamp'] or "N/A",
-                )
-
-            # Convert the table to a string
-            with console.capture() as capture:
-                console.print(table)
+            # Return the raw data as JSON instead of formatting it
+            service_data = {
+                "cluster_name": input_data.cluster_name,
+                "namespace": input_data.namespace,
+                "services": services
+            }
             
-            return [types.TextContent(type="text", text=capture.get())]
+            return [types.TextContent(type="text", text=json.dumps(service_data, indent=2))]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Error getting services: {str(e)}")]
 
@@ -802,28 +723,14 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
             
             deployments = kubernetes_manager.get_deployments(input_data.cluster_name, input_data.namespace)
             
-            # Create a table for the deployments
-            table = Table(title=f"Deployments in namespace {input_data.namespace} of cluster {input_data.cluster_name}")
-            table.add_column("Name")
-            table.add_column("Replicas")
-            table.add_column("Available")
-            table.add_column("Ready")
-            table.add_column("Creation Timestamp")
-
-            for deploy in deployments:
-                table.add_row(
-                    deploy['name'],
-                    str(deploy['replicas']),
-                    str(deploy['available_replicas'] or 0),
-                    str(deploy['ready_replicas'] or 0),
-                    deploy['creation_timestamp'] or "N/A",
-                )
-
-            # Convert the table to a string
-            with console.capture() as capture:
-                console.print(table)
+            # Return the raw data as JSON instead of formatting it
+            deployment_data = {
+                "cluster_name": input_data.cluster_name,
+                "namespace": input_data.namespace,
+                "deployments": deployments
+            }
             
-            return [types.TextContent(type="text", text=capture.get())]
+            return [types.TextContent(type="text", text=json.dumps(deployment_data, indent=2))]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Error getting deployments: {str(e)}")]
 
@@ -878,26 +785,13 @@ def main(port: int, transport: str, inventory: str, log_level: str) -> int:
             
             result = kubernetes_manager.apply_yaml(input_data.cluster_name, input_data.yaml_content)
             
-            # Create a table for the results
-            table = Table(title=f"Applied resources to cluster {input_data.cluster_name}")
-            table.add_column("Kind")
-            table.add_column("Name")
-            table.add_column("Namespace")
-            table.add_column("Status")
-
-            for res in result['results']:
-                table.add_row(
-                    res['kind'],
-                    res['name'],
-                    res.get('namespace', 'N/A'),
-                    res['status'],
-                )
-
-            # Convert the table to a string
-            with console.capture() as capture:
-                console.print(table)
+            # Return the raw data as JSON instead of formatting it
+            apply_data = {
+                "cluster_name": input_data.cluster_name,
+                "results": result['results']
+            }
             
-            return [types.TextContent(type="text", text=capture.get())]
+            return [types.TextContent(type="text", text=json.dumps(apply_data, indent=2))]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Error applying YAML: {str(e)}")]
 
