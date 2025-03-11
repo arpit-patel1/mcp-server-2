@@ -4,59 +4,11 @@ import os
 import json
 import yaml
 from typing import Dict, List, Optional, Any, Union
-from pydantic import BaseModel, Field
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 from kubernetes.stream import stream
 
-
-class KubernetesCluster(BaseModel):
-    """Kubernetes cluster model representing a Kubernetes cluster that can be managed.
-    
-    This model contains all the parameters needed to establish a connection to a Kubernetes cluster.
-    """
-
-    cluster_name: str = Field(
-        description="A unique name to identify this cluster in the inventory."
-    )
-    kubeconfig_path: Optional[str] = Field(
-        default=None,
-        description="Path to the kubeconfig file for this cluster. If not provided, "
-                    "the default kubeconfig will be used."
-    )
-    context: Optional[str] = Field(
-        default=None,
-        description="The context to use from the kubeconfig file. If not provided, "
-                    "the current context will be used."
-    )
-    api_server: Optional[str] = Field(
-        default=None,
-        description="The Kubernetes API server URL. Only used if kubeconfig_path is not provided."
-    )
-    token: Optional[str] = Field(
-        default=None,
-        description="The authentication token. Only used if kubeconfig_path is not provided."
-    )
-    cert_file: Optional[str] = Field(
-        default=None,
-        description="Path to the client certificate file. Only used if kubeconfig_path is not provided."
-    )
-    key_file: Optional[str] = Field(
-        default=None,
-        description="Path to the client key file. Only used if kubeconfig_path is not provided."
-    )
-    ca_file: Optional[str] = Field(
-        default=None,
-        description="Path to the CA certificate file. Only used if kubeconfig_path is not provided."
-    )
-    verify_ssl: bool = Field(
-        default=True,
-        description="Whether to verify SSL certificates."
-    )
-    active: bool = Field(
-        default=False,
-        description="Whether this cluster is currently active."
-    )
+from mcp_network_manager.models import KubernetesCluster
 
 
 class KubernetesManager:

@@ -12,83 +12,10 @@ from netmiko.exceptions import (
     ConfigInvalidException,
     ReadTimeout
 )
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from mcp_network_manager.security_utils import encrypt_password, decrypt_password, is_password_encrypted
-
-
-class Device(BaseModel):
-
-    device_type: str = Field(
-        description="The type of device to connect to (e.g., cisco_ios, cisco_xr, juniper_junos, arista_eos). "
-                    "This must be a valid Netmiko device type."
-    )
-    device_name: str = Field(
-        description="A unique name to identify this device in the inventory."
-    )
-    ip_address: str = Field(
-        description="The IP address or hostname of the device."
-    )
-    username: str = Field(
-        description="The username to use for authentication."
-    )
-    password: str = Field(
-        description="The password to use for authentication."
-    )
-    ssh_port: int = Field(
-        default=22,
-        description="The SSH port to connect to. Default is 22."
-    )
-    secret: Optional[str] = Field(
-        default=None,
-        description="The enable secret for privileged mode access on the device. "
-                    "Required for devices that need privilege escalation."
-    )
-    session_log: Optional[str] = Field(
-        default=None,
-        description="Path to a file where the session log will be written. "
-                    "Useful for debugging connection issues."
-    )
-    fast_cli: bool = Field(
-        default=False,
-        description="Set to True to use fast_cli mode with Cisco devices, which can significantly "
-                    "speed up operations but may cause issues with some devices."
-    )
-    timeout: int = Field(
-        default=100,
-        description="The overall timeout in seconds for the connection. "
-                    "This is the maximum time to wait for the entire operation."
-    )
-    conn_timeout: int = Field(
-        default=10,
-        description="The connection timeout in seconds. "
-                    "This is the maximum time to wait for the initial connection."
-    )
-    auth_timeout: int = Field(
-        default=10,
-        description="The authentication timeout in seconds. "
-                    "This is the maximum time to wait for authentication to complete."
-    )
-    banner_timeout: int = Field(
-        default=15,
-        description="The banner timeout in seconds. "
-                    "This is the maximum time to wait for the banner to be displayed."
-    )
-    netconf_port: Optional[int] = Field(
-        default=None,
-        description="The NETCONF port to connect to. "
-                    "Typically 830 for devices that support NETCONF."
-    )
-    restconf_port: Optional[int] = Field(
-        default=None,
-        description="The RESTCONF port to connect to. "
-                    "Typically 443 for devices that support RESTCONF."
-    )
-    global_delay_factor: float = Field(
-        default=1.0,
-        description="A multiplier that affects timing for all Netmiko operations. "
-                    "Increase this value for slower devices or connections."
-    )
+from mcp_network_manager.models import Device
 
 
 class DeviceManager:
